@@ -46,6 +46,27 @@ class MySQLClient:
             self.logger.error(f"数据库连接失败：{e}")
             raise  # 抛出异常，不屏蔽失败，让调用者处理
 
+    # todo 2.1.1连接探活--》连接被 MySQL 的 wait_timeout 掐掉后自动重连
+    def _ensure_connection(self):
+        """
+        函数作用：每次执行 SQL 前探活，连接断了就自动重连
+        解决：MySQL server has gone away (2006) 之后所有操作都变成 (0, '') 的问题
+        """
+        try:
+            # ping 会在连接可用时发一个轻量包；reconnect=True 表示断开时自动重连
+            self.connection.ping(reconnect=True)
+        except Exception as e:
+            # ping 失败或重连失败--》彻底重建连接和游标
+            self.logger.warning(f"数据库连接已断开，正在重连：{e}")
+            self.connection = pymysql.connect(
+                host=Config().MYSQL_HOST,
+                user=Config().MYSQL_USER,
+                password=Config().MYSQL_PASSWORD,
+                database=Config().MYSQL_DATABASE,
+            )
+            self.cursor = self.connection.cursor()
+            self.logger.info("Mysql重连成功")
+
     # todo 2.2创建数据库表--》若jpbk表不存在则创建，定义表结构
     def create_table(self):
         # 创建表SQL语句，创建jpkb表，存储：学科知识问答数据
@@ -57,6 +78,8 @@ class MySQLClient:
             answer varchar(1000))                   # 答案内容
         """
         try:
+            # 执行SQL前先探活，断了就重连
+            self._ensure_connection()
             # 执行SQL语句--》创建表
             self.cursor.execute(create_table_query)
             # 提交事务--》确认创建表成功        MySQL默认事务要手动提交，确保表创建成功
@@ -70,6 +93,8 @@ class MySQLClient:
     # todo 2.3从csv文件中批量插入数据到jpbk表中
     def insert_data(self, csv_file_path):
         try:
+            # 执行SQL前先探活，断了就重连
+            self._ensure_connection()
             # 读取csv文件--》获取数据
             data = pd.read_csv(csv_file_path)
             # 打印数据
@@ -89,13 +114,19 @@ class MySQLClient:
             # 输出错误信息
             self.logger.error(f"数据插入失败：{e}")
             # 事务回滚：把数据库连接恢复到事务开始前的状态--》类似linux的快照
-            self.connection.rollback()
+            # 注意：连接已死时 rollback() 自身会再抛一次异常，必须包住
+            try:
+                self.connection.rollback()
+            except Exception:
+                pass
             # 抛出异常，不屏蔽失败，让调用者处理
             raise
 
     # todo 2.4从jpkb表中获取所有问题，返回问题列表
     def fetch_questions(self):
         try:
+            # 执行SQL前先探活，断了就重连
+            self._ensure_connection()
             # 执行SQL查询
             self.cursor.execute("select question from jpkb")
             # 获取查询结果，fetch_all()返回所有查询结果
@@ -111,6 +142,8 @@ class MySQLClient:
     # todo 2.5根据指定问题从jpkb表中获取对应的答案
     def fetch_answer(self, question):
         try:
+            # 执行SQL前先探活，断了就重连
+            self._ensure_connection()
             # 执行SQL查询
             self.cursor.execute("select answer from jpkb where question = %s", (question,))
             # 获取查询结果

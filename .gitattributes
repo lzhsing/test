@@ -1,0 +1,58 @@
+# ── 换行符统一 ──────────────────────────────────────────────
+# 仓库内一律存 LF；配合 core.autocrlf=true，Windows 工作区检出为 CRLF。
+# 这样跨平台协作时 diff 不会因为行尾不同而炸出整文件改动。
+* text=auto
+
+# ── 二进制文件 ──────────────────────────────────────────────
+# 必须显式声明为 binary，否则 git 可能对它们做文本归一化，直接损坏文件。
+*.woff2  binary
+*.woff   binary
+*.ttf    binary
+*.otf    binary
+*.eot    binary
+*.jpg    binary
+*.jpeg   binary
+*.png    binary
+*.gif    binary
+*.webp   binary
+*.ico    binary
+*.bmp    binary
+*.pdf    binary
+*.docx   binary
+*.doc    binary
+*.xlsx   binary
+*.xls    binary
+*.pptx   binary
+*.ppt    binary
+*.zip    binary
+*.gz     binary
+*.tar    binary
+*.7z     binary
+
+# 模型权重 / 序列化产物（虽然 .gitignore 已排除 models/，这里兜底）
+*.bin    binary
+*.pt     binary
+*.pth    binary
+*.ckpt   binary
+*.onnx   binary
+*.safetensors binary
+*.pickle binary
+*.pkl    binary
+
+# ── 明确按文本处理 ──────────────────────────────────────────
+# 这些是给人看的文本，统一按文本判定（具体 eol 由 text=auto + autocrlf 决定）
+*.py     text
+*.html   text
+*.css    text
+*.js     text
+*.json   text
+*.md     text
+*.txt    text
+*.ini    text
+*.cfg    text
+*.yml    text
+*.yaml   text
+*.toml   text
+*.sh     text
+*.bat    text
+*.ps1    text

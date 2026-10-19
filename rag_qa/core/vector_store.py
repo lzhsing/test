@@ -65,7 +65,13 @@ class VectorStore:
         # 拼接重排序模型的本地路径，即：\rag_qa\models\bge-reranker-large
         reranker_model_path = os.path.join(rag_qa_path, 'models', 'bge-reranker-large')
         # 加载模型--》指定运行设备，模型用于计算‘查询问题‘和‘文档内容‘的相似度得分
-        self.reranker = CrossEncoder(reranker_model_path, device=self.device)
+        # low_cpu_mem_usage=True：边读盘边装权重，加载峰值从约 9GB 降到约 3.4GB，
+        # 避免内存不足时 torch 在分配参数处踩空指针，Windows 报 0xC0000005(access violation)
+        self.reranker = CrossEncoder(
+            reranker_model_path,
+            device=self.device,
+            automodel_args={"low_cpu_mem_usage": True},
+        )
 
         # 初始化BGE_M3嵌入函数--》生成文档和查询的向量表示
         # 拼接嵌入模型的本地路径，即：\rag_qa\models\bge-m3

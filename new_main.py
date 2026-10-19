@@ -56,6 +56,8 @@ class IntegratedQASystem:
         :return:
         """
         try:
+            # 执行SQL前先探活，断了就重连
+            self.mysql_client._ensure_connection()
             # 执行SQL语句--》创建conversation表，包含会话ID，问题，答案和时间戳
             self.mysql_client.cursor.execute("""
                 create table if not exists conversations(
@@ -105,8 +107,9 @@ class IntegratedQASystem:
         except Exception as e:
             # 记录API调用失败的错误日志
             self.logger.error(f'API调用失败：{e}')
-            # 返回错误信息
-            return f'错误：API调用失败 - {e}'
+            # 必须用 yield 把错误交给调用方--》生成器里 return 等价于 StopIteration，
+            # 调用方的 for 循环拿不到这个值，错误会被静默吞掉（界面上只剩空白）
+            yield f'错误：API调用失败 - {e}'
 
     # todo 2.4获取最近对话历史的内部方法：从MySQL中查询指定会话（id）的最近5轮对话
     def _fetch_recent_history(self, session_id):
@@ -116,6 +119,8 @@ class IntegratedQASystem:
         :return:包含对话历史的列表，每轮对话是一个字典，包含问题和答案
         """
         try:
+            # 执行SQL前先探活，断了就重连
+            self.mysql_client._ensure_connection()
             # 执行SQL查询，从conversation表中获取指定会话的最近5轮对话
             self.mysql_client.cursor.execute("""
                 select question, answer from conversations where session_id = %s order by timestamp desc limit %s
@@ -148,6 +153,8 @@ class IntegratedQASystem:
         :return:
         """
         try:
+            # 执行SQL前先探活，断了就重连
+            self.mysql_client._ensure_connection()
             # 插入新的会话记录，将问题，答案，及当前时间存入数据库
             self.mysql_client.cursor.execute("""
                 insert into conversations (session_id, question, answer, timestamp)
@@ -171,15 +178,19 @@ class IntegratedQASystem:
         except pymysql.MySQLError as e:
             # 记录会话历史更新失败的错误日志
             self.logger.error(f'会话历史更新失败：{e}')
-            # 回滚事务
-            self.mysql_client.connection.rollback()
+            # 回滚事务：连接可能已死，rollback() 自身也会抛异常，必须包住
+            try:
+                self.mysql_client.connection.rollback()
+            except Exception:
+                pass
         except Exception as e:
             # 记录意外错误的日志
             self.logger.error(f'更新会话历史发生意外错误：{e}')
-            # 回滚事务
-            self.mysql_client.connection.rollback()
-            # 抛出异常
-            raise
+            # 回滚事务：同样要包住，避免把原始异常盖掉
+            try:
+                self.mysql_client.connection.rollback()
+            except Exception:
+                pass
 
     # todo 2.7清除会话历史：删除指定会话的所有记录
     def clear_session_history(self, session_id: str) -> bool:
@@ -201,8 +212,11 @@ class IntegratedQASystem:
         except pymysql.MySQLError as e:
             # 记录会话历史清除失败的错误日志
             self.logger.error(f'会话历史清除失败：{e}')
-            # 回滚事务
-            self.mysql_client.connection.rollback()
+            # 回滚事务：连接可能已死，rollback() 自身也会抛异常，必须包住
+            try:
+                self.mysql_client.connection.rollback()
+            except Exception:
+                pass
             return False
 
     # todo 2.8处理查询的核心方法：整合检索，大模型生成和对话历史，返回流式输出
@@ -242,7 +256,11 @@ class IntegratedQASystem:
                 yield token, False
             if session_id:
                 # 更新对话历史，存储完整答案
-                self.update_session_history(session_id, query, collected_answer)
+                # 注意：历史保存失败绝不能打断答案输出，否则 end 事件发不出去
+                try:
+                    self.update_session_history(session_id, query, collected_answer)
+                except Exception as e:
+                    self.logger.error(f'历史保存失败（不影响答案输出）：{e}')
             # 计算处理时间
             process_time = time.time() - start_time
             self.logger.info(f'查询处理时间：{process_time}秒')
